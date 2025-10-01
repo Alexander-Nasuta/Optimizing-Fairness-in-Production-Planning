@@ -1,0 +1,15 @@
+throughput_mapping = [
+    {'geometry': 'Geometry 1', 'line': 'Line 3', 'throughput': 100},
+    {'geometry': 'Geometry 2', 'line': 'Line 1', 'throughput': 100},
+    {'geometry': 'Geometry 2', 'line': 'Line 3', 'throughput': 100},
+    {'geometry': 'Geometry 3', 'line': 'Line 2', 'throughput': 100},
+    {'geometry': 'Geometry 3', 'line': 'Line 3', 'throughput': 100},
+    {'geometry': 'Geometry 4', 'line': 'Line 1', 'throughput': 100},
+    {'geometry': 'Geometry 4', 'line': 'Line 2', 'throughput': 100},
+    {'geometry': 'Geometry 5', 'line': 'Line 2', 'throughput': 100},
+    {'geometry': 'Geometry 5', 'line': 'Line 3', 'throughput': 100},
+    {'geometry': 'Geometry 6', 'line': 'Line 2', 'throughput': 100},
+    {'geometry': 'Geometry 7', 'line': 'Line 1', 'throughput': 100},
+    {'geometry': 'Geometry 8', 'line': 'Line 1', 'throughput': 100},
+    {'geometry': 'Geometry 8', 'line': 'Line 3', 'throughput': 100},
+]

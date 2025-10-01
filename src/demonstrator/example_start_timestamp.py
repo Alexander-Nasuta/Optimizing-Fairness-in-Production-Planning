@@ -1,0 +1,1 @@
+start_timestamp = 1759125600  # corresponds to Monday 2025-09-29 06:00:00
