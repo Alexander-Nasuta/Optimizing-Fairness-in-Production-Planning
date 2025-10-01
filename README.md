@@ -6,10 +6,8 @@ Most scripts contain a `if __name__ == "__main__":` block, which can be used to 
 This block showcases the main functionality of the script and can be used to test the script.
 For local development the REST API can be run locally.
 
-1. Clone the repository
-2. Install the requirements by running `pip install -r requirements_dev.txt` (dev contains the requirements for testing and development)
-3. install tox by running `pip install tox`
-4. Install the project locally by running `pip install -e .`
+1. Clone the repository `git clone https://github.com/Alexander-Nasuta/Optimizing-Fairness-in-Production-Planning.git`
+2. Install the project locally by running `pip install -e .`
 
 ## Examples
 
@@ -35,4 +33,4 @@ Development Repository for AI Services for the FAIRWork Project
 
 “This work has been supported by the FAIRWork project (www.fairwork-project.eu) and has been funded within the European Commission’s Horizon Europe Programme under contract number 101049499. This paper expresses the opinions of the authors and not necessarily those of the European Commission. The European Commission is not liable for any use that may be made of the information contained in this presentation.”
 
-Copyright © RWTH of FAIRWork Consortium
+Copyright © RWTH of the FAIRWork Consortium
