@@ -450,6 +450,7 @@ def make_env():
         resilience_weight=RESILIENCE_WEIGHT,
         preference_weight=PREFERENCE_WEIGHT,
         experience_weight=EXPERIENCE_WEIGHT,
+        fairness_weight=FAIRNESS_WEIGHT,
     )
 
     def mask_fn(env: gym.Env) -> np.ndarray:
