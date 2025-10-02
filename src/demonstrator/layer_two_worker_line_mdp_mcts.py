@@ -18,6 +18,7 @@ from gymcts.gymcts_gym_env import SoloMCTSGymEnv
 RESILIENCE_WEIGHT = 1
 PREFERENCE_WEIGHT = 1
 EXPERIENCE_WEIGHT = 1
+FAIRNESS_WEIGHT = 1
 
 class CrfMCTSWrapper(SoloMCTSGymEnv, gym.Wrapper):
 
@@ -82,6 +83,7 @@ if __name__ == '__main__':
         resilience_weight=RESILIENCE_WEIGHT,
         preference_weight=PREFERENCE_WEIGHT,
         experience_weight=EXPERIENCE_WEIGHT,
+        fairness_weight=FAIRNESS_WEIGHT,
     )
 
     res = solve_with_mcts(env, n_sim=3) # increase n_sim to improve solution quality

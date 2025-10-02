@@ -436,6 +436,7 @@ import pprint
 RESILIENCE_WEIGHT = 1
 PREFERENCE_WEIGHT = 1
 EXPERIENCE_WEIGHT = 1
+FAIRNESS_WEIGHT = 1
 
 def make_env():
     env = CrfWorkerAllocationEnv(
@@ -485,6 +486,7 @@ if __name__ == '__main__':
         resilience_weight=RESILIENCE_WEIGHT,
         preference_weight=PREFERENCE_WEIGHT,
         experience_weight=EXPERIENCE_WEIGHT,
+        fairness_weight=FAIRNESS_WEIGHT,
     )
     obs, start_timestamp = test_env.reset()
     done = False
@@ -511,21 +513,10 @@ from demonstrator.layer_two_worker_line_mdp import CrfWorkerAllocationEnv
 from demonstrator.example_layer_one_output import layer_one_output
 
 
-from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
-from sb3_contrib.common.wrappers import ActionMasker
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv
-
-import stable_baselines3 as sb3
-import sb3_contrib
-import gymnasium as gym
-import numpy as np
-
-
 RESILIENCE_WEIGHT = 1
 PREFERENCE_WEIGHT = 1
 EXPERIENCE_WEIGHT = 1
+FAIRNESS_WEIGHT = 1
 
 
 if __name__ == '__main__':
@@ -540,6 +531,7 @@ if __name__ == '__main__':
         resilience_weight=RESILIENCE_WEIGHT,
         preference_weight=PREFERENCE_WEIGHT,
         experience_weight=EXPERIENCE_WEIGHT,
+        fairness_weight=FAIRNESS_WEIGHT,
     )
 
     env.greedy_rollout_sparse()
@@ -572,6 +564,7 @@ from gymcts.gymcts_gym_env import SoloMCTSGymEnv
 RESILIENCE_WEIGHT = 1
 PREFERENCE_WEIGHT = 1
 EXPERIENCE_WEIGHT = 1
+FAIRNESS_WEIGHT = 1
 
 class CrfMCTSWrapper(SoloMCTSGymEnv, gym.Wrapper):
 
@@ -636,6 +629,7 @@ if __name__ == '__main__':
         resilience_weight=RESILIENCE_WEIGHT,
         preference_weight=PREFERENCE_WEIGHT,
         experience_weight=EXPERIENCE_WEIGHT,
+        fairness_weight=FAIRNESS_WEIGHT,
     )
 
     res = solve_with_mcts(env, n_sim=3) # increase n_sim to improve solution quality

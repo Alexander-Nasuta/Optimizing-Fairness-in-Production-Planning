@@ -22,6 +22,7 @@ import pprint
 RESILIENCE_WEIGHT = 1
 PREFERENCE_WEIGHT = 1
 EXPERIENCE_WEIGHT = 1
+FAIRNESS_WEIGHT = 1
 
 def make_env():
     env = CrfWorkerAllocationEnv(
@@ -71,6 +72,7 @@ if __name__ == '__main__':
         resilience_weight=RESILIENCE_WEIGHT,
         preference_weight=PREFERENCE_WEIGHT,
         experience_weight=EXPERIENCE_WEIGHT,
+        fairness_weight=FAIRNESS_WEIGHT,
     )
     obs, start_timestamp = test_env.reset()
     done = False

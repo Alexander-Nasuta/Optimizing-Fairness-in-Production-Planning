@@ -2697,6 +2697,7 @@ class CrfWorkerAllocationEnv(gym.Env):
                  preference_weight: float = 1.0,
                  resilience_weight: float = 1.0,
                  experience_weight: float = 1.0,
+                 fairness_weight: float = 1.0,
                  allocate_workers_on_the_same_line_if_possible: bool = True,
                  throughput_mapping: list[dict[str, Any]] = throughput_mapping,
                  ):
@@ -2722,6 +2723,7 @@ class CrfWorkerAllocationEnv(gym.Env):
         self._preference_weight = preference_weight
         self._resilience_weight = resilience_weight
         self._experience_weight = experience_weight
+        self._fairness_weight = fairness_weight
 
         self._start_timestamp = start_timestamp
 
@@ -2730,6 +2732,8 @@ class CrfWorkerAllocationEnv(gym.Env):
         self._initial_state = df_state.copy(deep=True)
 
         self.load_state(state=self._initial_state)
+
+        log.debug(f"weights: experience {self._experience_weight}, preference {self._preference_weight}, resilience {self._resilience_weight}, fairness {fairness_weight}")
 
         # the action space is basically a matrix of workers and the rows of the df, but flattened
         # action = 0 is the first worker for the first row
