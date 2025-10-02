@@ -16,6 +16,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 import sb3_contrib
 import gymnasium as gym
 import numpy as np
+import pprint
 
 
 RESILIENCE_WEIGHT = 1
@@ -50,11 +51,37 @@ if __name__ == '__main__':
     # Create the vectorized environment
     vec_env = make_vec_env(make_env, n_envs=4, vec_env_cls=DummyVecEnv)
 
-    model = sb3_contrib.MaskablePPO(MaskableActorCriticPolicy, vec_env, verbose=0, device="auto")
+    model = sb3_contrib.MaskablePPO(MaskableActorCriticPolicy, vec_env, device="auto")
 
     print("training the model. This may take a while...")
-    model.learn(total_timesteps=10_000) # feel free to increase the number of timesteps
+    model.learn(total_timesteps=1_000) # feel free to increase the number of timesteps
     model.save(f"crf_rl_model-action-{vec_env.action_space.n}_obs-{vec_env.observation_space.shape}"
                f"_resilience-{RESILIENCE_WEIGHT}"
                f"_experience-{EXPERIENCE_WEIGHT}"
                f"_preference-{PREFERENCE_WEIGHT}.zip")
+
+    test_env = CrfWorkerAllocationEnv(
+        previous_step_output=layer_one_output,
+        worker_availabilities=worker_availabilities,
+        geometry_line_mapping=geometry_line_mapping,
+        human_factor_data=human_factor_data,
+        start_timestamp=start_timestamp,
+        allocate_workers_on_the_same_line_if_possible=False,
+        order_data=order_data,
+        resilience_weight=RESILIENCE_WEIGHT,
+        preference_weight=PREFERENCE_WEIGHT,
+        experience_weight=EXPERIENCE_WEIGHT,
+    )
+    obs, start_timestamp = test_env.reset()
+    done = False
+    while not done:
+        masks = test_env.valid_action_mask()
+        action, _ = model.predict(observation=obs, deterministic=True, action_masks=masks)
+        obs, rew, done, turn, info = test_env.step(action)
+        print(f"Action: {action}, Reward: {rew}")
+
+    allocations_dict = test_env.get_worker_allocation(filter_no_workers_assigned=True)
+    print(f"Allocations: \n {pprint.pformat(allocations_dict)}")
+
+
+

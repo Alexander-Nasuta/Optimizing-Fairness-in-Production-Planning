@@ -12,9 +12,6 @@ import collections
 from jsp_vis.console import gantt_chart_console
 from ortools.sat.python import cp_model
 
-# Format of each order alternative tuple:
-# alternative: (duration [min], line_id, priority, due_date [min])
-
 
 start_timestamp = 1759125600  # corresponds to Monday 2025-09-29 06:00:00
 
@@ -101,73 +98,10 @@ task_idx_to_task_key_mapping = {
     6: "Order 1 × Geometry 7",
     7: "Order 2 × Geometry 8",
 }
-throughput_mapping = [
-    {'geometry': 'Geometry 1', 'line': 'Line 3', 'throughput': 100},
-    {'geometry': 'Geometry 2', 'line': 'Line 1', 'throughput': 100},
-    {'geometry': 'Geometry 2', 'line': 'Line 3', 'throughput': 100},
-    {'geometry': 'Geometry 3', 'line': 'Line 2', 'throughput': 100},
-    {'geometry': 'Geometry 3', 'line': 'Line 3', 'throughput': 100},
-    {'geometry': 'Geometry 4', 'line': 'Line 1', 'throughput': 100},
-    {'geometry': 'Geometry 4', 'line': 'Line 2', 'throughput': 100},
-    {'geometry': 'Geometry 5', 'line': 'Line 2', 'throughput': 100},
-    {'geometry': 'Geometry 5', 'line': 'Line 3', 'throughput': 100},
-    {'geometry': 'Geometry 6', 'line': 'Line 2', 'throughput': 100},
-    {'geometry': 'Geometry 7', 'line': 'Line 1', 'throughput': 100},
-    {'geometry': 'Geometry 8', 'line': 'Line 1', 'throughput': 100},
-    {'geometry': 'Geometry 8', 'line': 'Line 3', 'throughput': 100},
-]
 
-geometry_line_mapping = [
-    {
-        "geometry": "Geometry 1",
-        "main_line": "Line 3",
-        "alternative_lines": [],
-        "number_of_workers": 3,
-    },
-    {
-        "geometry": "Geometry 2",
-        "main_line": "Line 3",
-        "alternative_lines": ["Line 1"],
-        "number_of_workers": 4,
-    },
-    {
-        "geometry": "Geometry 3",
-        "main_line": "Line 3",
-        "alternative_lines": ["Line 2"],
-        "number_of_workers": 3,
-    },
-    {
-        "geometry": "Geometry 4",
-        "main_line": "Line 2",
-        "alternative_lines": ["Line 1"],
-        "number_of_workers": 6,
-    },
-    {
-        "geometry": "Geometry 5",
-        "main_line": "Line 2",
-        "alternative_lines": ["Line 3"],
-        "number_of_workers": 5,
-    },
-    {
-        "geometry": "Geometry 6",
-        "main_line": "Line 2",
-        "alternative_lines": [],
-        "number_of_workers": 6,
-    },
-    {
-        "geometry": "Geometry 7",
-        "main_line": "Line 1",
-        "alternative_lines": [],
-        "number_of_workers": 5,
-    },
-    {
-        "geometry": "Geometry 8",
-        "main_line": "Line 1",
-        "alternative_lines": ["Line 3"],
-        "number_of_workers": 6,
-    },
-]
 
+# Format of each order alternative tuple:
+# alternative: (duration [min], line_id, priority, due_date [min])
 EXAMPLE_ORDER_LINE_INSTANCE = [
     # Geometry 1
     [(1200, 2, 0, 2400)],
@@ -300,7 +234,6 @@ def main(makespan_weight: int = 1, tardiness_weight: int = 1, hours_per_day: int
     for line_id, line_intervals in intervals_per_resources.items():
         model.add_no_overlap(line_intervals)
 
-    # todo: do the priority constrain machine/line wise
 
     # priority starts before non-priority constraints
     for priority_start in priority_starts:
