@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=42.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "optimizing-fairness-in-production-planning"
+version = "1.0.0"
+description = "Supplementary material for the research article 'Optimizing Fairness in Production Planning: A Human-Centric Approach to Machine and Workforce Allocation'"
+readme = "README.md"
+authors = [
+    { name = "Alexander Nasuta", email = "alexander.nasuta@ima.rwth-aachen.de" },
+]
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]
+
+dependencies = [
+    "rich",
+    "torch",
+    "numpy",
+    "pandas",
+    "ortools",
+    "jsp_vis",
+    "gymnasium",
+    "stable_baselines3",
+    "sb3-contrib",
+    "pip-tools",
+    "pytest",
+    "pytest-cov",
+    "inquirer",
+    "gymcts == 1.0.0"
+]
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+addopts = "--cov=utils --cov=demonstrator -p no:warnings"
+testpaths = [
+    "test",
+]
+
+[project.urls]
+Homepage = "https://fairwork-project.eu/"
