@@ -136,7 +136,7 @@ class SolutionPrinter(cp_model.CpSolverSolutionCallback):
 
 
 def main(makespan_weight: int = 1, tardiness_weight: int = 1, hours_per_day: int = 16,
-         order_list: List[Any] = None) -> (pandas.DataFrame, dict):
+         order_list: List[Any] = None, callback = None, verbose = 2) -> (pandas.DataFrame, dict):
     log.info("Running main function")
     log.info(f"makespan_weight: {makespan_weight}, tardiness_weight: {tardiness_weight}")
 
@@ -262,10 +262,11 @@ def main(makespan_weight: int = 1, tardiness_weight: int = 1, hours_per_day: int
 
     # Solve model.
     solver = cp_model.CpSolver()
-    solution_printer = SolutionPrinter()
-    status = solver.solve(model, solution_printer)
+    cb = SolutionPrinter() if callback is None else callback
+    status = solver.solve(model, cb)
+    if status == cp_model.OPTIMAL and verbose > 0:
 
-    log.info(f"""
+        log.info(f"""
 Solution found: {status == cp_model.OPTIMAL or status == cp_model.FEASIBLE}
 Solution is optimal: {status == cp_model.OPTIMAL}
 

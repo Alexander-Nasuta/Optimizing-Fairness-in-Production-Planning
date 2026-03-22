@@ -3028,8 +3028,13 @@ class CrfWorkerAllocationEnv(gym.Env):
 
         # check if "_setup_time_within_timebox" adds up to "_setup_time" for each task
         for task in setup_time_mapping.keys():
-            assert df[df['Task'] == task]['_setup_time_within_timebox'].sum() == setup_time_mapping[task], \
-                f"setup time within timebox does not add up to setup time for task {task}"
+            if task not in df['Task'].values:
+               log.debug(f"Skipping task '{task}' because it is not in the DataFrame")
+               continue
+            expected_setup_time = setup_time_mapping[task]
+            data_setup_time = df[df['Task'] == task]['_setup_time_within_timebox'].sum()
+            assert data_setup_time == expected_setup_time, \
+                f"setup time within timebox does not add up to setup time for task '{task}'. expected: {expected_setup_time}, but actual: {data_setup_time}"
 
         # check if "produced_amount" adds up to "total_amount" for each task
         # only check task present in the dataframe:

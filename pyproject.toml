@@ -31,7 +31,9 @@ dependencies = [
     "pytest",
     "pytest-cov",
     "inquirer",
-    "gymcts == 1.0.0"
+    "gymcts == 1.0.0",
+    "wandb",
+    "tqdm",
 ]
 requires-python = ">=3.11"
 
