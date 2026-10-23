@@ -17,6 +17,8 @@ SCENARIO_NAMES = list(SCENARIOS.keys())
 OPTIMISATION_STRATEGIES = ["balanced"]
 # only preference fairness enters the reward (experience and resilience fairness are logged for evaluation only)
 REWARD_FAIRNESS_SIGNALS = ("preference",)
+# potential-based shaping of the fairness reward (Ng et al. 1999) is not used in the experiments
+DENSE_FAIRNESS_SIGNAL = False
 
 experiment_sweep_config = {
     'method': 'grid',
@@ -74,6 +76,7 @@ def perform_run():
         run.config.update({
             "random_seed": random_seed,
             "reward_fairness_signals": list(REWARD_FAIRNESS_SIGNALS),
+            "dense_fairness_signal": DENSE_FAIRNESS_SIGNAL,
             # fingerprints to verify that runs used identical input data
             "layer_one_output_fingerprint": data_fingerprint(LAYER_ONE_OUTPUT),
             "order_data_fingerprint": data_fingerprint(ORDER_DATA),
@@ -102,6 +105,7 @@ def perform_run():
             experience_weight=EXPERIENCE_WEIGHT,
             fairness_weight=FAIRNESS_WEIGHT,
             reward_fairness_signals=REWARD_FAIRNESS_SIGNALS,
+            dense_fairness_signal=DENSE_FAIRNESS_SIGNAL,
         )
 
         start = time.perf_counter()
@@ -113,8 +117,9 @@ def perform_run():
         experience, resilience, preference = env.get_KPIs()
         # fairness signal of the reward (preference fairness only, as configured)
         fairness = env.get_fairness_metric(is_terminal=True)
-        # fairness scores for evaluation: preference, experience, resilience and total (mean of the three)
-        fairness_metrics = env.get_fairness_metrics()
+        # fairness scores for evaluation (not part of the reward): preference, experience, resilience and total
+        # (mean of the three); working hours, physical load and night shifts (Jain's index)
+        fairness_metrics = env.get_fairness_metrics() | env.get_workload_fairness_metrics()
 
         state = env.get_state()
         required_slots = int(state["required_workers"].sum())

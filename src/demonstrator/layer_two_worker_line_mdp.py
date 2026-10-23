@@ -2704,7 +2704,17 @@ class CrfWorkerAllocationEnv(gym.Env):
                  allocate_workers_on_the_same_line_if_possible: bool = True,
                  throughput_mapping: list[dict[str, Any]] = throughput_mapping,
                  reward_fairness_signals: tuple[str, ...] = ("preference",),
+                 dense_fairness_signal: bool = False,
+                 fairness_shaping_gamma: float = 1.0,
                  ):
+        # potential-based reward shaping of the fairness term (Ng et al. 1999), see `_fairness_shaping_reward`.
+        # if False, the reward is unchanged.
+        self._dense_fairness_signal = dense_fairness_signal
+        # discount factor used in the shaping term F = gamma * Phi(s') - Phi(s); should match the agent's discount
+        # factor for the policy invariance guarantee to hold
+        self._fairness_shaping_gamma = fairness_shaping_gamma
+        self._last_fairness_potential: float | None = None
+
         # human factors whose fairness enters the fairness term of the reward (default: preference fairness only).
         # further signals ("experience", "resilience") are optional; their fairness scores are averaged.
         unknown_signals = set(reward_fairness_signals) - set(FAIRNESS_SIGNALS)
@@ -3186,7 +3196,53 @@ class CrfWorkerAllocationEnv(gym.Env):
         self._n_rows = self._state.shape[0]
         self._n_workers = len(worker_to_idx_map)
 
+        # the shaping potential depends on the allocation in the state, so it has to be recomputed when a state is
+        # loaded (e.g. on reset or when MCTS restores a state)
+        if self._dense_fairness_signal:
+            self._last_fairness_potential = self._fairness_potential()
+
+    def _fairness_potential(self) -> float:
+        """
+        Shaping potential Phi(s) = w*_fair * S_fair(s): the fairness signal of the reward (see
+        `reward_fairness_signals`) of the (partial) allocation in the current state, scaled like the terminal fairness
+        term with w*_fair = N_slots * fairness_weight (Eq. 21).
+        """
+        n_slots = int(self._state["required_workers"].sum())
+        scores = self._get_fairness_scores(signals=self._reward_fairness_signals)
+        s_fair = float(np.mean([scores[signal] for signal in self._reward_fairness_signals]))
+        return self._fairness_weight * n_slots * s_fair
+
+    def _fairness_shaping_reward(self) -> float:
+        """
+        Potential-based shaping reward F = gamma * Phi(s') - Phi(s) (Ng et al. 1999) for the transition into the
+        current state. Over an episode the shaping rewards telescope to gamma^T * Phi(s_T) - Phi(s_0), i.e. (for
+        gamma = 1) the terminal fairness term w*_fair * S_fair(s_T) minus a constant, so the fairness signal becomes
+        dense without changing the optimal policy.
+
+        The last potential is stored instead of computing Phi before and after each step, since `step` may call itself
+        recursively (allocation on the same line); this way each (nested) transition is counted exactly once.
+        """
+        potential = self._fairness_potential()
+        shaping_reward = self._fairness_shaping_gamma * potential - self._last_fairness_potential
+        self._last_fairness_potential = potential
+        return shaping_reward
+
     def _calculate_reward(
+            self,
+            named_worker_tuple: tuple,
+            is_terminal: bool,
+            row_done_without_meeting_required_workers_penalty=0
+    ) -> SupportsFloat:
+        reward = self._calculate_base_reward(
+            named_worker_tuple=named_worker_tuple,
+            is_terminal=is_terminal,
+            row_done_without_meeting_required_workers_penalty=row_done_without_meeting_required_workers_penalty
+        )
+        if self._dense_fairness_signal:
+            reward += self._fairness_shaping_reward()
+        return reward
+
+    def _calculate_base_reward(
             self,
             named_worker_tuple: tuple,
             is_terminal: bool,
@@ -3216,10 +3272,10 @@ class CrfWorkerAllocationEnv(gym.Env):
             else:
                 return 0
 
-    def _get_fairness_scores(self, signals: tuple[str, ...] = FAIRNESS_SIGNALS) -> dict[str, float]:
+    def _get_worker_means(self, signals: tuple[str, ...] = FAIRNESS_SIGNALS) -> dict[str, list[float]]:
         """
-        Fairness score S_fair = 1 - 4 * sigma^2 for each human factor in `signals`, where sigma^2 is the variance of
-        the per-worker mean values over all slots a worker is allocated to (only workers with at least one allocation).
+        Per-worker mean value of each human factor in `signals` over all slots a worker is allocated to
+        (only workers with at least one allocation).
         """
         from collections import defaultdict
 
@@ -3241,22 +3297,31 @@ class CrfWorkerAllocationEnv(gym.Env):
 
                         values_per_worker[signal][worker_col].append(value)
 
-        scores = {}
-        for signal in signals:
-            worker_means = [float(np.mean(vals)) for vals in values_per_worker[signal].values() if len(vals) > 0]
+        return {
+            signal: [float(np.mean(vals)) for vals in values_per_worker[signal].values() if len(vals) > 0]
+            for signal in signals
+        }
 
-            if len(worker_means) == 0:
-                scores[signal] = 1.0
-                continue
+    @staticmethod
+    def _variance_fairness(worker_means: list[float]) -> float:
+        """S_fair = 1 - 4 * sigma^2 of the per-worker means, clipped to [0, 1]; 1 if there are no workers."""
+        if len(worker_means) == 0:
+            return 1.0
 
-            global_mean = float(np.mean(worker_means))
+        global_mean = float(np.mean(worker_means))
 
-            sigma2 = float(np.mean([(m - global_mean) ** 2 for m in worker_means]))
+        sigma2 = float(np.mean([(m - global_mean) ** 2 for m in worker_means]))
 
-            s_fair = 1.0 - 4.0 * sigma2
-            scores[signal] = max(0.0, min(1.0, s_fair))
+        s_fair = 1.0 - 4.0 * sigma2
+        return max(0.0, min(1.0, s_fair))
 
-        return scores
+    def _get_fairness_scores(self, signals: tuple[str, ...] = FAIRNESS_SIGNALS) -> dict[str, float]:
+        """
+        Fairness score S_fair = 1 - 4 * sigma^2 for each human factor in `signals`, where sigma^2 is the variance of
+        the per-worker mean values over all slots a worker is allocated to (only workers with at least one allocation).
+        """
+        worker_means = self._get_worker_means(signals=signals)
+        return {signal: self._variance_fairness(worker_means[signal]) for signal in signals}
 
     # language: python
     def get_fairness_metric(self, is_terminal: bool = False) -> float:
@@ -3273,13 +3338,87 @@ class CrfWorkerAllocationEnv(gym.Env):
     def get_fairness_metrics(self) -> dict[str, float]:
         """
         Fairness scores for evaluation (independent of the reward configuration): preference, experience and
-        resilience fairness, and the total fairness as their mean.
+        resilience fairness, and the total fairness as their mean. Each score is computed from the per-worker mean
+        values in two variants: S_fair = 1 - 4 * sigma^2 (fairness_<signal>, as used in the reward) and Jain's
+        fairness index (fairness_jain_<signal>).
         """
-        scores = self._get_fairness_scores(signals=FAIRNESS_SIGNALS)
+        worker_means = self._get_worker_means(signals=FAIRNESS_SIGNALS)
+        scores = {signal: self._variance_fairness(worker_means[signal]) for signal in FAIRNESS_SIGNALS}
+        jain_scores = {signal: self._jain_index(worker_means[signal]) for signal in FAIRNESS_SIGNALS}
         return {
             f"fairness_{signal}": score for signal, score in scores.items()
         } | {
             "fairness_total": float(np.mean(list(scores.values())))
+        } | {
+            f"fairness_jain_{signal}": score for signal, score in jain_scores.items()
+        } | {
+            "fairness_jain_total": float(np.mean(list(jain_scores.values())))
+        }
+
+    @staticmethod
+    def _jain_index(values: list[float]) -> float:
+        """Jain's fairness index (sum x)^2 / (n * sum x^2) in [1/n, 1]; 1 if all values are equal (or all zero)."""
+        if len(values) == 0:
+            return 1.0
+        values = np.asarray(values, dtype=float)
+        sum_of_squares = float(np.sum(values ** 2))
+        if sum_of_squares == 0:
+            return 1.0
+        return float(np.sum(values) ** 2 / (len(values) * sum_of_squares))
+
+    def _night_minutes(self, solver_time_start: int, solver_time_end: int) -> int:
+        """
+        Minutes of the interval [start, end) (solver time) that fall into the night shift (22:00-06:00, UTC).
+        Solver time excludes weekends (Saturday 06:00 - Monday 06:00), i.e. exactly 48 h, so the time of day of a
+        solver time point is the time of day of the start timestamp plus the solver time.
+        """
+        start_datetime = datetime.fromtimestamp(self._start_timestamp, tz=pytz.UTC)
+        offset = start_datetime.hour * 60 + start_datetime.minute
+
+        def night_minutes_until(minutes_since_midnight: int) -> int:
+            # night minutes in [0, x) of a timeline starting at midnight
+            full_days, remainder = divmod(minutes_since_midnight, 1440)
+            return full_days * 480 + min(remainder, 360) + max(0, remainder - 1320)
+
+        return night_minutes_until(offset + solver_time_end) - night_minutes_until(offset + solver_time_start)
+
+    def get_workload_fairness_metrics(self) -> dict[str, float]:
+        """
+        Workload fairness scores for evaluation only (not part of the reward), each as Jain's fairness index:
+
+        - fairness_working_hours: assigned minutes per worker.
+        - fairness_physical_load: physical load per worker, i.e. sum of interval duration * (1 - resilience) over all
+          assigned slots (low resilience = demanding task).
+        - fairness_night_shifts: assigned night minutes (22:00-06:00) per worker.
+
+        Working hours and physical load consider all workers that are available in at least one interval (including
+        workers without any assignment); night shifts consider all workers available in at least one interval that
+        overlaps the night shift.
+        """
+        minutes = {worker_col: 0.0 for worker_col in self._worker_to_idx_map.keys()}
+        load = {worker_col: 0.0 for worker_col in self._worker_to_idx_map.keys()}
+        night = {worker_col: 0.0 for worker_col in self._worker_to_idx_map.keys()}
+        available_at_night = set()
+
+        for _, row in self._state.iterrows():
+            duration = row['interval_end'] - row['interval_start']
+            night_minutes = self._night_minutes(row['interval_start'], row['interval_end'])
+            for worker_col in self._worker_to_idx_map.keys():
+                val = row.get(worker_col, None)
+                if not isinstance(val, tuple):
+                    continue
+                if night_minutes > 0:
+                    available_at_night.add(worker_col)
+                if val.allocated == 1:
+                    minutes[worker_col] += duration
+                    load[worker_col] += duration * (1 - val.resilience)
+                    night[worker_col] += night_minutes
+
+        return {
+            "fairness_working_hours": self._jain_index(list(minutes.values())),
+            "fairness_physical_load": self._jain_index(list(load.values())),
+            "fairness_night_shifts": self._jain_index([night[w] for w in available_at_night]),
+            "workers_without_assignment": int(sum(1 for m in minutes.values() if m == 0)),
         }
 
     def step(self, action: int) -> (npt.NDArray, SupportsFloat, bool, bool, dict[str, Any]):

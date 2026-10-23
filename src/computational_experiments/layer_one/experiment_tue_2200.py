@@ -7,6 +7,7 @@ from ortools.sat.python import cp_model
 
 from computational_experiments.layer_one.instances import INSTANCES, END_TIMES
 from demonstrator.layer_one_order_to_line_solver import main
+from demonstrator.layer_one_order_to_line_solver_due_date_adherence import main as main_due_date_adherence
 from utils.logger import log
 from utils.reproducibility import data_fingerprint, environment_info
 
@@ -16,7 +17,7 @@ WANDB_PROJECT = "fairness-in-production-planning"
 WANDB_ENTITY = "querry"
 
 INSTANCE_NAMES = [f"INSTANCE_TUE_2200_V{i}" for i in range(1, 6)]
-OPTIMISATION_STRATEGIES = ["tardiness", "makespan", "balanced"]
+OPTIMISATION_STRATEGIES = ["tardiness", "makespan", "balanced", "due_date_adherence"]
 N_RUNS = 10
 # CP-SAT random seed = run_no; deterministic (interleaved) parallel search makes each run reproducible
 DETERMINISTIC = True
@@ -48,11 +49,14 @@ experiment_sweep_config = {
     }
 }
 
-# (makespan_weight, tardiness_weight) of Equation (1)
+# (makespan_weight, tardiness_weight, earliness_weight). Strategies without earliness use the model of Equation (1)
+# (`layer_one_order_to_line_solver`), strategies with earliness the due-date adherence variant
+# (`layer_one_order_to_line_solver_due_date_adherence`).
 OPTIMISATION_WEIGHTS = {
-    "tardiness": (0, 1),
-    "makespan": (1, 0),
-    "balanced": (1, 1),
+    "tardiness": (0, 1, 0),
+    "makespan": (1, 0, 0),
+    "balanced": (1, 1, 0),
+    "due_date_adherence": (0, 1, 1),
 }
 
 
@@ -73,14 +77,20 @@ class LoggerCB(cp_model.CpSolverSolutionCallback):
         self.__optimal_objective = optimal_objective
         self.__makespan_var = None
         self.__total_tardiness_var = None
+        self.__total_earliness_var = None
         self.__best_makespan = None
         self.__best_total_tardiness = None
+        self.__best_total_earliness = None
         self.__best_objective = None
 
     def set_objective_variables(self, makespan, total_tardiness):
         """Called by `main` before solving."""
         self.__makespan_var = makespan
         self.__total_tardiness_var = total_tardiness
+
+    def set_earliness_variable(self, total_earliness):
+        """Called by the due-date adherence variant of `main` before solving."""
+        self.__total_earliness_var = total_earliness
 
     def on_solution_callback(self):
         """Called at each new solution."""
@@ -94,9 +104,6 @@ class LoggerCB(cp_model.CpSolverSolutionCallback):
             # gap the solver can certify: current objective vs. its lower bound
             "intermediate_solver_gap": float(objective - bound),
             "intermediate_solver_gap_relative": relative_gap(objective, bound),
-            # gap to the known optimum of the constructed instance
-            "intermediate_optimality_gap": float(objective - self.__optimal_objective),
-            "intermediate_optimality_gap_relative": relative_gap(objective, self.__optimal_objective),
             "run_time": float(elapsed),
             "time": float(elapsed),
             "solver_time": float(self.wall_time),
@@ -105,6 +112,22 @@ class LoggerCB(cp_model.CpSolverSolutionCallback):
             "best_objective_so_far": float(self.__best_objective),
             "intermediate_best_objective_bound": float(bound),
         }
+
+        if self.__optimal_objective is not None:
+            # gap to the known optimum of the constructed instance
+            log_dict |= {
+                "intermediate_optimality_gap": float(objective - self.__optimal_objective),
+                "intermediate_optimality_gap_relative": relative_gap(objective, self.__optimal_objective),
+            }
+
+        if self.__total_earliness_var is not None:
+            total_earliness = self.value(self.__total_earliness_var)
+            self.__best_total_earliness = total_earliness if self.__best_total_earliness is None \
+                else min(self.__best_total_earliness, total_earliness)
+            log_dict |= {
+                "intermediate_total_earliness": total_earliness,
+                "best_total_earliness_so_far": self.__best_total_earliness,
+            }
 
         if self.__makespan_var is not None:
             makespan = self.value(self.__makespan_var)
@@ -122,15 +145,28 @@ class LoggerCB(cp_model.CpSolverSolutionCallback):
         wb.log(log_dict)
 
 
-def evaluate_solution(instance: list, solution: list) -> (int, int):
-    """Compute makespan and total tardiness of a solution returned by `main`."""
+def evaluate_solution(instance: list, solution: list) -> dict:
+    """
+    Compute operational indicators of a solution returned by `main`: makespan, total/max tardiness, number of tardy
+    jobs, total earliness and number of early jobs. Earliness is only part of the objective for the due-date adherence
+    strategy.
+    """
     makespan = 0
-    total_tardiness = 0
+    tardiness = []
+    earliness = []
     for elem in solution:
         due_date = next(due for _, line_id, _, due in instance[elem["Task"]] if line_id == elem["Resource"])
         makespan = max(makespan, elem["Finish"])
-        total_tardiness += max(0, elem["Finish"] - due_date)
-    return makespan, total_tardiness
+        tardiness.append(max(0, elem["Finish"] - due_date))
+        earliness.append(max(0, due_date - elem["Finish"]))
+    return {
+        "makespan": makespan,
+        "total_tardiness": sum(tardiness),
+        "max_tardiness": max(tardiness, default=0),
+        "num_tardy_jobs": sum(1 for t in tardiness if t > 0),
+        "total_earliness": sum(earliness),
+        "num_early_jobs": sum(1 for e in earliness if e > 0),
+    }
 
 
 def perform_run():
@@ -147,14 +183,15 @@ def perform_run():
         optimisation_strategy = wb.config["optimisation"]
         if optimisation_strategy not in OPTIMISATION_WEIGHTS:
             raise NotImplementedError(f"unknown optimisation strategy: {optimisation_strategy}")
-        makespan_weight, tardiness_weight = OPTIMISATION_WEIGHTS[optimisation_strategy]
+        makespan_weight, tardiness_weight, earliness_weight = OPTIMISATION_WEIGHTS[optimisation_strategy]
 
         instance_name = wb.config["Instance"]
         instance = INSTANCES[instance_name]
 
-        # instances are constructed such that makespan == END_TIMES[instance_name] with zero tardiness is optimal
+        # instances are constructed such that makespan == END_TIMES[instance_name] with zero tardiness is optimal.
+        # this does not hold if earliness is penalised, so there is no known optimum for the due-date adherence strategy
         optimal_makespan = END_TIMES[instance_name]
-        optimal_objective = makespan_weight * optimal_makespan
+        optimal_objective = makespan_weight * optimal_makespan if earliness_weight == 0 else None
 
         random_seed = int(wb.config["run_no"])
 
@@ -164,38 +201,44 @@ def perform_run():
         wb.log({
             "makespan_weight": float(makespan_weight),
             "tardiness_weight": float(tardiness_weight),
+            "earliness_weight": float(earliness_weight),
             "num_operations": len(instance),
             "time_limit": TIME_LIMIT,
             "deterministic_time_limit": DETERMINISTIC_TIME_LIMIT,
             "random_seed": random_seed,
             "deterministic": int(DETERMINISTIC),
             "optimal_makespan": optimal_makespan,
-            "optimal_objective": optimal_objective,
-        })
+        } | ({"optimal_objective": optimal_objective} if optimal_objective is not None else {}))
 
-        start = time.perf_counter()
-        cb = LoggerCB(start_time=start, optimal_objective=optimal_objective)
-        solver_info = {}
-        solution_dict = main(
+        solver_kwargs = dict(
             order_list=instance,
             makespan_weight=makespan_weight,
             tardiness_weight=tardiness_weight,
             verbose=0,
-            callback=cb,
-            solver_info=solver_info,
             time_limit=TIME_LIMIT,
             random_seed=random_seed,
             deterministic=DETERMINISTIC,
             deterministic_time_limit=DETERMINISTIC_TIME_LIMIT,
         )
 
+        start = time.perf_counter()
+        cb = LoggerCB(start_time=start, optimal_objective=optimal_objective)
+        solver_info = {}
+        if earliness_weight > 0:
+            solution_dict = main_due_date_adherence(
+                **solver_kwargs, earliness_weight=earliness_weight, callback=cb, solver_info=solver_info,
+            )
+        else:
+            solution_dict = main(**solver_kwargs, callback=cb, solver_info=solver_info)
+
         end = time.perf_counter()
 
         elapsed = end - start
         log.info(f"Elapsed time: {elapsed:.6f} seconds")
 
-        makespan, total_tardiness = evaluate_solution(instance, solution_dict)
-        objective = makespan_weight * makespan + tardiness_weight * total_tardiness
+        indicators = evaluate_solution(instance, solution_dict)
+        objective = makespan_weight * indicators["makespan"] + tardiness_weight * indicators["total_tardiness"] \
+            + earliness_weight * indicators["total_earliness"]
 
         dict_for_gantt = [
             elem | {
@@ -209,11 +252,12 @@ def perform_run():
             {
                 "run_time": float(elapsed),
                 "time": float(elapsed),
-                "makespan": makespan,
-                "total_tardiness": total_tardiness,
+                **indicators,
                 "objective": objective,
+            } | ({
                 "objective_gap": objective - optimal_objective,
                 "objective_gap_relative": relative_gap(objective, optimal_objective),
+            } if optimal_objective is not None else {}) | {
                 "solver_gap_relative": relative_gap(solver_info["objective"], solver_info["best_objective_bound"]),
                 "solver_status": solver_info["status"],
                 "solver_is_optimal": int(solver_info["is_optimal"]),
