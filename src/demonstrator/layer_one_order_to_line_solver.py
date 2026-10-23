@@ -136,7 +136,21 @@ class SolutionPrinter(cp_model.CpSolverSolutionCallback):
 
 
 def main(makespan_weight: int = 1, tardiness_weight: int = 1, hours_per_day: int = 16,
-         order_list: List[Any] = None, callback = None, verbose = 2) -> (pandas.DataFrame, dict):
+         order_list: List[Any] = None, callback = None, verbose = 2,
+         solver_info: dict | None = None, time_limit: float | None = None,
+         random_seed: int | None = None, deterministic: bool = False,
+         deterministic_time_limit: float | None = None) -> (pandas.DataFrame, dict):
+    """
+    If `solver_info` is given, it is filled with the solver status and statistics
+    (status, is_optimal, objective, best_objective_bound, wall_time, ...).
+    `time_limit` is the maximum solving time in seconds (no limit if None).
+    `random_seed` sets the CP-SAT random seed. With the default parallel search, the same seed does not guarantee the
+    same result, since the workers interact depending on thread timing. `deterministic` enables CP-SAT's interleaved
+    (deterministic) parallel search, which makes runs with the same seed reproducible as long as the (wall clock)
+    time limit is not reached.
+    `deterministic_time_limit` limits the solver by CP-SAT's deterministic time (a machine independent measure of work,
+    not seconds). Together with `deterministic` and `random_seed`, runs that hit this limit are reproducible as well.
+    """
     log.info("Running main function")
     log.info(f"makespan_weight: {makespan_weight}, tardiness_weight: {tardiness_weight}")
 
@@ -262,8 +276,34 @@ def main(makespan_weight: int = 1, tardiness_weight: int = 1, hours_per_day: int
 
     # Solve model.
     solver = cp_model.CpSolver()
+    if time_limit is not None:
+        solver.parameters.max_time_in_seconds = time_limit
+    if deterministic_time_limit is not None:
+        solver.parameters.max_deterministic_time = deterministic_time_limit
+    if random_seed is not None:
+        solver.parameters.random_seed = random_seed
+    if deterministic:
+        solver.parameters.interleave_search = True
     cb = SolutionPrinter() if callback is None else callback
+    # give callbacks that want to track the objective components access to the variables
+    if hasattr(cb, "set_objective_variables"):
+        cb.set_objective_variables(makespan=makespan, total_tardiness=total_tardiness)
     status = solver.solve(model, cb)
+    if solver_info is not None:
+        solver_info.update({
+            "status": solver.status_name(status),
+            "is_optimal": status == cp_model.OPTIMAL,
+            "is_feasible": status in (cp_model.OPTIMAL, cp_model.FEASIBLE),
+            "objective": solver.objective_value,
+            "best_objective_bound": solver.best_objective_bound,
+            "wall_time": solver.wall_time,
+            "deterministic_time": solver.response_proto.deterministic_time,
+            "num_branches": solver.num_branches,
+            "num_conflicts": solver.num_conflicts,
+            "random_seed": solver.parameters.random_seed,
+            "deterministic": solver.parameters.interleave_search,
+            "num_workers": solver.parameters.num_workers,
+        })
     if status == cp_model.OPTIMAL and verbose > 0:
 
         log.info(f"""

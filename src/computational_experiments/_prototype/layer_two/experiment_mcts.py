@@ -2,10 +2,15 @@ import pprint
 import time
 
 import wandb as wb
+import gymnasium as gym
+import pandas as pd
+
+from gymcts.gymcts_agent import SoloMCTSAgent
+from gymcts.gymcts_gym_env import SoloMCTSGymEnv
 
 from utils.logger import log
 
-from computational_experiments.layer_two.instances import get_instance
+from computational_experiments._prototype.layer_two.instances import get_instance
 from demonstrator.example_geometry_line_mapping import geometry_line_mapping
 from demonstrator.example_human_factors import human_factor_data
 from demonstrator.example_order_data import order_data
@@ -20,10 +25,10 @@ experiment_sweep_config = {
     },
     'parameters': {
         "approach": {
-            'values': ["greedy"]
+            'values': ["mcts"]
         },
         "num_jobs": {
-            'values': [8,7,6,5,4,3,2,1]
+            'values': [8, 7, 6, 5, 4, 3, 2, 1]
         },
         "optimisation": {
             'values': [
@@ -35,11 +40,64 @@ experiment_sweep_config = {
         },
         "run_no": {
             'values': [
-                1,2,3,4,5,6,7,8,9,10
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10
             ]
         }
     }
 }
+
+
+class CrfMCTSWrapper(SoloMCTSGymEnv, gym.Wrapper):
+
+    def __init__(self, env: CrfWorkerAllocationEnv):
+        gym.Wrapper.__init__(self, env)
+
+    def load_state(self, state: pd.DataFrame) -> None:
+        self.env.unwrapped.load_state(state)
+
+    def is_terminal(self) -> bool:
+        return self.env.unwrapped.is_terminal_state()
+
+    def get_valid_actions(self) -> list[int]:
+        return self.env.unwrapped.valid_action_list()
+
+    def rollout(self) -> float:
+        # return self.env.unwrapped.greedy_rollout_sparse()
+        for _ in range(2):
+            best_action = self.env.unwrapped.best_eager_action()
+            if best_action is not None:
+                self.env.step(best_action)
+
+        return self.env.unwrapped.get_scaled_KPI_score()
+
+    def get_state(self) -> pd.DataFrame:
+        return self.env.unwrapped.get_state()
+
+
+def solve_with_mcts(env: CrfWorkerAllocationEnv, n_sim=2) -> dict:
+    env.reset()
+    env = CrfMCTSWrapper(env)
+
+    agent = SoloMCTSAgent(
+        env=env,
+        clear_mcts_tree_after_step=False,
+        render_tree_after_step=True,
+        exclude_unvisited_nodes_from_render=True,
+        number_of_simulations_per_step=n_sim,
+    )
+    actions = agent.solve(render_tree_after_step=True)
+
+    experience, resilience, preference = env.unwrapped.get_KPIs()
+    allocation_with_worker_data = env.unwrapped.get_worker_allocation()
+
+    return {
+        "experience": experience,
+        "preference": preference,
+        "resilience": resilience,
+        "transparency": "medium",
+        "allocations": allocation_with_worker_data,
+    }
+
 
 
 def perform_run():
@@ -103,7 +161,9 @@ def perform_run():
         )
 
         start = time.perf_counter()
-        env.greedy_rollout_sparse()
+
+        res = solve_with_mcts(env, n_sim=3)  # increase n_sim to improve solution quality
+
         end = time.perf_counter()
 
         elapsed = end - start
@@ -113,15 +173,14 @@ def perform_run():
                 "time": float(elapsed),
             })
 
-        experience, resilience, preference = env.get_KPIs()
-        allocations_dict = env.get_worker_allocation(filter_no_workers_assigned=True)
-        log.info(f"Allocations: \n{pprint.pformat(allocations_dict)}")
-        log.info(f"KPIs: experience={experience:.2f}, resilience={resilience:.2f}, preference={preference:.2f}")
+        log.info(f"Allocations: \n{pprint.pformat(res['allocations'])}")
+        log.info(
+            f"KPIs: experience={res['experience']:.2f}, resilience={res['resilience']:.2f}, preference={res['preference']:.2f}")
 
 
 if __name__ == '__main__':
     #sweep_id = wb.sweep(experiment_sweep_config, project="optimizing-fairness", entity="querry")
-    sweep_id = "7hfvv44m"
-    wb.agent(sweep_id, function=perform_run, count=10*8*4, project="optimizing-fairness", entity="querry")
+    sweep_id = "b42nb31u"
+    wb.agent(sweep_id, function=perform_run, count=10*4*8, project="optimizing-fairness", entity="querry")
 
 

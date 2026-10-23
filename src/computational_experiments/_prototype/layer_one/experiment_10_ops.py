@@ -6,11 +6,12 @@ import wandb
 import wandb as wb
 from ortools.sat.python import cp_model
 
-from computational_experiments.layer_one.instances import EXAMPLE_INSTANCE_11_OPTIONS_V5, \
+from computational_experiments._prototype.layer_one.instances import EXAMPLE_INSTANCE_11_OPTIONS_V5, \
     EXAMPLE_INSTANCE_12_OPTIONS_V1, EXAMPLE_INSTANCE_12_OPTIONS_V2, EXAMPLE_INSTANCE_12_OPTIONS_V3, \
     EXAMPLE_INSTANCE_12_OPTIONS_V4, EXAMPLE_INSTANCE_12_OPTIONS_V5, EXAMPLE_INSTANCE_1_OPTIONS_V1, \
     EXAMPLE_INSTANCE_1_OPTIONS_V2, EXAMPLE_INSTANCE_1_OPTIONS_V3, EXAMPLE_INSTANCE_1_OPTIONS_V4, \
-    EXAMPLE_INSTANCE_1_OPTIONS_V5
+    EXAMPLE_INSTANCE_1_OPTIONS_V5, EXAMPLE_INSTANCE_10_OPTIONS_V1, EXAMPLE_INSTANCE_10_OPTIONS_V2, \
+    EXAMPLE_INSTANCE_10_OPTIONS_V3, EXAMPLE_INSTANCE_10_OPTIONS_V4, EXAMPLE_INSTANCE_10_OPTIONS_V5
 from demonstrator.layer_one_order_to_line_solver import main, line_id_mapping_to_line_str_mapping, \
     task_idx_to_task_key_mapping, start_timestamp
 from utils.crf_timestamp_solver_time_conversion import solver_time_to_timestamp
@@ -27,18 +28,18 @@ experiment_sweep_config = {
     },
     'parameters': {
         "no_op": {
-            'values': [1]
+            'values': [10]
         },
         "approach": {
             'values': ["cp"]
         },
         "Instance": {
             'values': [
-                "EXAMPLE_INSTANCE_1_OPTIONS_V1",
-                "EXAMPLE_INSTANCE_1_OPTIONS_V2",
-                "EXAMPLE_INSTANCE_1_OPTIONS_V3",
-                "EXAMPLE_INSTANCE_1_OPTIONS_V4",
-                "EXAMPLE_INSTANCE_1_OPTIONS_V5",
+                "EXAMPLE_INSTANCE_10_OPTIONS_V1",
+                "EXAMPLE_INSTANCE_10_OPTIONS_V2",
+                "EXAMPLE_INSTANCE_10_OPTIONS_V3",
+                "EXAMPLE_INSTANCE_10_OPTIONS_V4",
+                "EXAMPLE_INSTANCE_10_OPTIONS_V5",
             ]
         },
         "optimisation": {
@@ -66,11 +67,11 @@ experiment_sweep_config = {
 }
 
 INSTANCES = {
-    "EXAMPLE_INSTANCE_1_OPTIONS_V1": EXAMPLE_INSTANCE_1_OPTIONS_V1,
-    "EXAMPLE_INSTANCE_1_OPTIONS_V2": EXAMPLE_INSTANCE_1_OPTIONS_V2,
-    "EXAMPLE_INSTANCE_1_OPTIONS_V3": EXAMPLE_INSTANCE_1_OPTIONS_V3,
-    "EXAMPLE_INSTANCE_1_OPTIONS_V4": EXAMPLE_INSTANCE_1_OPTIONS_V4,
-    "EXAMPLE_INSTANCE_1_OPTIONS_V5": EXAMPLE_INSTANCE_1_OPTIONS_V5,
+    "EXAMPLE_INSTANCE_10_OPTIONS_V1": EXAMPLE_INSTANCE_10_OPTIONS_V1,
+    "EXAMPLE_INSTANCE_10_OPTIONS_V2": EXAMPLE_INSTANCE_10_OPTIONS_V2,
+    "EXAMPLE_INSTANCE_10_OPTIONS_V3": EXAMPLE_INSTANCE_10_OPTIONS_V3,
+    "EXAMPLE_INSTANCE_10_OPTIONS_V4": EXAMPLE_INSTANCE_10_OPTIONS_V4,
+    "EXAMPLE_INSTANCE_10_OPTIONS_V5": EXAMPLE_INSTANCE_10_OPTIONS_V5,
 }
 
 class LoggerCB(cp_model.CpSolverSolutionCallback):

@@ -19,7 +19,7 @@ from wandb.integration.sb3 import WandbCallback
 from utils.logger import log
 
 
-from computational_experiments.layer_two.instances import get_instance
+from computational_experiments._prototype.layer_two.instances import get_instance
 from demonstrator.example_geometry_line_mapping import geometry_line_mapping
 from demonstrator.example_human_factors import human_factor_data
 from demonstrator.example_order_data import order_data

@@ -2559,6 +2559,9 @@ order_data = [
     },
 ]
 
+# human factors for which a fairness score can be computed
+FAIRNESS_SIGNALS = ("preference", "experience", "resilience")
+
 worker_decision_variables = namedtuple(
     'WorkerVars',
     ['available', 'medical_condition', 'preference', 'resilience', 'experience', 'allocated']
@@ -2700,7 +2703,15 @@ class CrfWorkerAllocationEnv(gym.Env):
                  fairness_weight: float = 1.0,
                  allocate_workers_on_the_same_line_if_possible: bool = True,
                  throughput_mapping: list[dict[str, Any]] = throughput_mapping,
+                 reward_fairness_signals: tuple[str, ...] = ("preference",),
                  ):
+        # human factors whose fairness enters the fairness term of the reward (default: preference fairness only).
+        # further signals ("experience", "resilience") are optional; their fairness scores are averaged.
+        unknown_signals = set(reward_fairness_signals) - set(FAIRNESS_SIGNALS)
+        if not reward_fairness_signals or unknown_signals:
+            raise ValueError(f"reward_fairness_signals must be a non-empty subset of {FAIRNESS_SIGNALS}, "
+                             f"got {reward_fairness_signals}")
+        self._reward_fairness_signals = tuple(reward_fairness_signals)
 
         df_state = self._init_state_dataframe(
             previous_step_output=previous_step_output,
@@ -3205,15 +3216,15 @@ class CrfWorkerAllocationEnv(gym.Env):
             else:
                 return 0
 
-    # language: python
-    def get_fairness_metric(self, is_terminal: bool = False) -> float:
-        if not is_terminal:
-            return 0.0
-
+    def _get_fairness_scores(self, signals: tuple[str, ...] = FAIRNESS_SIGNALS) -> dict[str, float]:
+        """
+        Fairness score S_fair = 1 - 4 * sigma^2 for each human factor in `signals`, where sigma^2 is the variance of
+        the per-worker mean values over all slots a worker is allocated to (only workers with at least one allocation).
+        """
         from collections import defaultdict
 
-        # sammle Präferenzen pro Arbeiter (nur für zugewiesene Slots)
-        prefs_per_worker = defaultdict(list)
+        # sammle Werte pro Arbeiter (nur für zugewiesene Slots)
+        values_per_worker = {signal: defaultdict(list) for signal in signals}
 
         for _, row in self._state.iterrows():
             for worker_col in self._worker_to_idx_map.keys():
@@ -3222,30 +3233,54 @@ class CrfWorkerAllocationEnv(gym.Env):
                     continue
 
                 if getattr(val, "allocated", 0) == 1:
+                    for signal in signals:
+                        try:
+                            value = float(getattr(val, signal))
+                        except Exception as e:
+                            continue
 
-                    try:
-                        pref = float(getattr(val, "preference"))
-                    except Exception as e:
-                        continue
+                        values_per_worker[signal][worker_col].append(value)
 
-                    prefs_per_worker[worker_col].append(pref)
+        scores = {}
+        for signal in signals:
+            worker_means = [float(np.mean(vals)) for vals in values_per_worker[signal].values() if len(vals) > 0]
 
-        if len(prefs_per_worker) == 0:
-            return 1.0
+            if len(worker_means) == 0:
+                scores[signal] = 1.0
+                continue
 
-        worker_means = [float(np.mean(vals)) for vals in prefs_per_worker.values() if len(vals) > 0]
+            global_mean = float(np.mean(worker_means))
 
-        if len(worker_means) == 0:
-            return 1.0
+            sigma2 = float(np.mean([(m - global_mean) ** 2 for m in worker_means]))
 
-        global_mean = float(np.mean(worker_means))
+            s_fair = 1.0 - 4.0 * sigma2
+            scores[signal] = max(0.0, min(1.0, s_fair))
 
-        sigma2 = float(np.mean([(m - global_mean) ** 2 for m in worker_means]))
+        return scores
 
-        s_fair = 1.0 - 4.0 * sigma2
-        s_fair = max(0.0, min(1.0, s_fair))
+    # language: python
+    def get_fairness_metric(self, is_terminal: bool = False) -> float:
+        """
+        Fairness signal used in the reward. By default, only preference fairness. If further signals are configured
+        via `reward_fairness_signals`, the mean of their fairness scores is returned.
+        """
+        if not is_terminal:
+            return 0.0
 
-        return s_fair
+        scores = self._get_fairness_scores(signals=self._reward_fairness_signals)
+        return float(np.mean([scores[signal] for signal in self._reward_fairness_signals]))
+
+    def get_fairness_metrics(self) -> dict[str, float]:
+        """
+        Fairness scores for evaluation (independent of the reward configuration): preference, experience and
+        resilience fairness, and the total fairness as their mean.
+        """
+        scores = self._get_fairness_scores(signals=FAIRNESS_SIGNALS)
+        return {
+            f"fairness_{signal}": score for signal, score in scores.items()
+        } | {
+            "fairness_total": float(np.mean(list(scores.values())))
+        }
 
     def step(self, action: int) -> (npt.NDArray, SupportsFloat, bool, bool, dict[str, Any]):
         if self._no_action_falg == True:
@@ -3586,16 +3621,24 @@ class CrfWorkerAllocationEnv(gym.Env):
     def valid_action_list(self) -> list[int]:
         return [i for i, is_valid in enumerate(self.valid_action_mask()) if is_valid]
 
-    def random_rollout(self) -> int:
-        done = len(self.valid_action_mask())
+    def random_rollout(self, rng: np.random.Generator | None = None) -> int:
+        """
+        Take uniformly random valid actions until the episode terminates.
+        `rng` is used for sampling the actions; if None, numpy's global random state is used.
+        """
+        done = self.is_terminal_state()
 
         # unfortunately, we dont have any information about the past rewards
         # so we just return the cumulative reward from the current state onwards
         cumulative_reward_from_current_state_onwards = 0
 
         while not done:
-            valid_action_list = self.valid_action_list()
-            random_action = np.random.choice(valid_action_list)
+            valid_action_tuples = self.valid_action_tuples()
+            if not valid_action_tuples:
+                break
+            random_idx = rng.integers(len(valid_action_tuples)) if rng is not None \
+                else np.random.randint(len(valid_action_tuples))
+            random_action = self.action_tuple_to_action_idx(valid_action_tuples[random_idx])
             _, rew, done, _, _ = self.step(random_action)
             cumulative_reward_from_current_state_onwards += rew
 
